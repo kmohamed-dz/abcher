@@ -1,4 +1,14 @@
-[00:00:02.493] Server  LOG     ✓ Ready in 1458ms
-[00:01:28.604] Server  LOG     ○ Compiling / ...
-[00:01:31.734] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
-[00:04:54.367] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:00:07.238] Server  WARN    ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+[00:00:08.798] Server  LOG     ✓ Ready in 6.6s
+[00:00:15.507] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:00:21.748] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:02:13.687] Browser WARN    [auth:onboarding-create-school] new row violates row-level security policy for table "schools"
+[00:02:21.758] Browser WARN    [auth:onboarding-create-school] new row violates row-level security policy for table "schools"
+[00:02:57.017] Browser WARN    [auth:onboarding-create-school] new row violates row-level security policy for table "schools"
+[00:05:57.354] Server  LOG     ✓ Compiled in 7s
+[00:51:27.782] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:51:42.628] Browser WARN    [auth:onboarding-create-school] new row violates row-level security policy for table "schools"
+[00:57:16.832] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:57:25.119] Browser WARN    [auth:onboarding-create-school] new row violates row-level security policy for table "schools"
+[00:58:16.116] Browser WARN    [auth:onboarding-create-school] new row violates row-level security policy for table "schools"
+[01:02:48.878] Server  LOG     ✓ Compiled in 938ms

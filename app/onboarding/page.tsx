@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 
@@ -9,18 +9,36 @@ import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Field from "@/components/ui/Field";
 import { createClient } from "@/lib/supabase/client";
+import { getCurrentProfile } from "@/lib/getCurrentProfile";
 import type { UserRole } from "@/lib/types";
 
 interface ProfileContext {
   id: string;
+  full_name: string | null;
   role: UserRole | null;
   school_id: string | null;
 }
 
 const supabase = createClient();
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const candidate = (error as { message?: unknown }).message;
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate;
+    }
+  }
+
+  return fallback;
+}
+
 export default function OnboardingPage() {
   const router = useRouter();
+  const initializedRef = useRef(false);
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -35,36 +53,29 @@ export default function OnboardingPage() {
   const [joinCode, setJoinCode] = useState("");
 
   useEffect(() => {
+    if (initializedRef.current) {
+      return;
+    }
+
+    initializedRef.current = true;
+
     const loadProfile = async () => {
       setLoading(true);
 
       try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
+        const { user, profile: resolvedProfile } = await getCurrentProfile();
 
         if (!user) {
           router.replace("/login");
           return;
         }
 
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("id, role, school_id")
-          .eq("id", user.id)
-          .maybeSingle<ProfileContext>();
-
-        if (error) {
-          throw error;
-        }
-
-        const current =
-          data ??
-          ({
-            id: user.id,
-            role: null,
-            school_id: null,
-          } as ProfileContext);
+        const current: ProfileContext = {
+          id: user.id,
+          full_name: resolvedProfile?.full_name ?? null,
+          role: resolvedProfile?.role ?? null,
+          school_id: resolvedProfile?.school_id ?? null,
+        };
 
         setProfile(current);
 
@@ -75,8 +86,9 @@ export default function OnboardingPage() {
 
         setRole(current.role ?? null);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "تعذر تحميل بيانات الإعداد.";
-        toast.error(message);
+        const message = getErrorMessage(error, "تعذر تحميل بيانات الإعداد.");
+        console.warn("[auth:onboarding-load]", message);
+        toast.error(`تعذر تحميل بيانات الإعداد. (${message})`, { id: "onboarding-load-error" });
       } finally {
         setLoading(false);
       }
@@ -96,17 +108,28 @@ export default function OnboardingPage() {
     setSubmitting(true);
 
     try {
-      const { error } = await supabase.from("profiles").update({ role: selectedRole }).eq("id", profile.id);
+      const { error } = await supabase.from("profiles").upsert(
+        [
+          {
+            id: profile.id,
+            full_name: (profile.full_name ?? "").trim(),
+            role: selectedRole,
+          },
+        ],
+        { onConflict: "id" },
+      );
 
       if (error) {
         throw error;
       }
 
       setRole(selectedRole);
+      setProfile((prev) => (prev ? { ...prev, role: selectedRole } : prev));
       toast.success("تم حفظ نوع الحساب.");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "تعذر حفظ نوع الحساب.";
-      toast.error(message);
+      const message = getErrorMessage(error, "تعذر حفظ نوع الحساب.");
+      console.warn("[auth:onboarding-role]", message);
+      toast.error(`تعذر حفظ نوع الحساب. (${message})`);
     } finally {
       setSubmitting(false);
     }
@@ -125,20 +148,36 @@ export default function OnboardingPage() {
     setSubmitting(true);
 
     try {
+      const { error: ensureRoleError } = await supabase.from("profiles").upsert(
+        [
+          {
+            id: profile.id,
+            full_name: (profile.full_name ?? "").trim(),
+            role: "school_admin",
+          },
+        ],
+        { onConflict: "id" },
+      );
+
+      if (ensureRoleError) {
+        throw ensureRoleError;
+      }
+
+      setRole("school_admin");
+      setProfile((prev) => (prev ? { ...prev, role: "school_admin" } : prev));
+
+      const schoolId = crypto.randomUUID();
       const code = Math.random().toString(36).slice(2, 8).toUpperCase();
 
-      const { data: school, error: schoolError } = await supabase
-        .from("schools")
-        .insert([
-          {
-            name: schoolName.trim(),
-            wilaya: wilaya.trim(),
-            address: address.trim() || null,
-            school_code: code,
-          },
-        ])
-        .select("id")
-        .single<{ id: string }>();
+      const { error: schoolError } = await supabase.from("schools").insert([
+        {
+          id: schoolId,
+          name: schoolName.trim(),
+          wilaya: wilaya.trim(),
+          address: address.trim() || null,
+          school_code: code,
+        },
+      ]);
 
       if (schoolError) {
         throw schoolError;
@@ -146,7 +185,11 @@ export default function OnboardingPage() {
 
       const { error: profileError } = await supabase
         .from("profiles")
-        .update({ school_id: school.id })
+        .update({
+          school_id: schoolId,
+          role: "school_admin",
+          full_name: (profile.full_name ?? "").trim(),
+        })
         .eq("id", profile.id);
 
       if (profileError) {
@@ -156,8 +199,9 @@ export default function OnboardingPage() {
       toast.success("تم إنشاء المدرسة وربط الحساب بنجاح.");
       router.replace("/dashboard");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "تعذر إنشاء المدرسة.";
-      toast.error(message);
+      const message = getErrorMessage(error, "تعذر إنشاء المدرسة.");
+      console.warn("[auth:onboarding-create-school]", message);
+      toast.error(`تعذر إنشاء المدرسة. (${message})`);
     } finally {
       setSubmitting(false);
     }
@@ -177,20 +221,48 @@ export default function OnboardingPage() {
 
     try {
       const normalizedCode = joinCode.trim().toUpperCase();
+      let schoolId: string | null = null;
 
-      const { data: school, error: schoolError } = await supabase
-        .from("schools")
-        .select("id")
-        .eq("school_code", normalizedCode)
-        .single<{ id: string }>();
+      const { data: rpcSchoolId, error: rpcError } = await supabase.rpc("find_school_id_by_code", {
+        p_school_code: normalizedCode,
+      });
 
-      if (schoolError || !school) {
+      if (rpcError) {
+        const message = rpcError.message.toLowerCase();
+        const functionMissing =
+          message.includes("find_school_id_by_code") &&
+          (message.includes("does not exist") || message.includes("could not find"));
+
+        if (functionMissing) {
+          const { data: school, error: schoolError } = await supabase
+            .from("schools")
+            .select("id")
+            .eq("school_code", normalizedCode)
+            .single<{ id: string }>();
+
+          if (schoolError || !school) {
+            throw new Error("رمز المدرسة غير صحيح.");
+          }
+
+          schoolId = school.id;
+        } else {
+          throw rpcError;
+        }
+      } else if (typeof rpcSchoolId === "string" && rpcSchoolId.trim()) {
+        schoolId = rpcSchoolId;
+      }
+
+      if (!schoolId) {
         throw new Error("رمز المدرسة غير صحيح.");
       }
 
       const { error: profileError } = await supabase
         .from("profiles")
-        .update({ school_id: school.id })
+        .update({
+          school_id: schoolId,
+          role: role ?? "teacher",
+          full_name: (profile.full_name ?? "").trim(),
+        })
         .eq("id", profile.id);
 
       if (profileError) {
@@ -200,8 +272,9 @@ export default function OnboardingPage() {
       toast.success("تم ربط الحساب بالمدرسة.");
       router.replace("/dashboard");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "تعذر ربط الحساب بالمدرسة.";
-      toast.error(message);
+      const message = getErrorMessage(error, "تعذر ربط الحساب بالمدرسة.");
+      console.warn("[auth:onboarding-join-school]", message);
+      toast.error(`تعذر ربط الحساب بالمدرسة. (${message})`);
     } finally {
       setSubmitting(false);
     }

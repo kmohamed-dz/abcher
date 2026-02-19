@@ -470,8 +470,15 @@ var __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$supabase$2f$client$2e
 ;
 ;
 ;
+function isMissingProfilesTableError(message) {
+    const value = message.toLowerCase();
+    return value.includes("could not find the table") && value.includes("profiles") || value.includes("schema cache") && value.includes("profiles") || value.includes("relation") && value.includes("profiles") && value.includes("does not exist");
+}
 function mapAuthError(message) {
     const value = message.toLowerCase();
+    if (isMissingProfilesTableError(value)) {
+        return "تم إنشاء الحساب لكن قاعدة البيانات غير مهيأة (جدول profiles غير موجود).";
+    }
     if (value.includes("user already registered")) {
         return "هذا البريد مسجل بالفعل. يمكنك تسجيل الدخول مباشرة.";
     }
@@ -485,6 +492,24 @@ function mapAuthError(message) {
         return "إنشاء الحسابات متوقف مؤقتًا.";
     }
     return "تعذر إنشاء الحساب. حاول مرة أخرى.";
+}
+function getErrorMessage(error, fallback) {
+    if (error instanceof Error && error.message) {
+        return error.message;
+    }
+    if (typeof error === "object" && error !== null && "message" in error) {
+        const candidate = error.message;
+        if (typeof candidate === "string" && candidate.trim()) {
+            return candidate;
+        }
+    }
+    return fallback;
+}
+function showAuthError(context, error, fallback) {
+    const originalMessage = getErrorMessage(error, fallback);
+    console.warn(`[auth:${context}]`, originalMessage);
+    const friendlyMessage = mapAuthError(originalMessage);
+    __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$hot$2d$toast$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"].error(`${friendlyMessage} (${originalMessage})`);
 }
 const supabase = (0, __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$supabase$2f$client$2e$ts__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["createClient"])();
 function RegisterPage() {
@@ -531,6 +556,7 @@ function RegisterPage() {
                 email: email.trim(),
                 password,
                 options: {
+                    emailRedirectTo: `${window.location.origin}/auth/callback`,
                     data: {
                         full_name: fullName.trim(),
                         phone: phone.trim() || null
@@ -540,29 +566,42 @@ function RegisterPage() {
             if (error) {
                 throw error;
             }
-            const user = data.user;
-            if (user) {
-                const { error: profileError } = await supabase.from("profiles").upsert([
-                    {
-                        id: user.id,
-                        full_name: fullName.trim(),
-                        phone: phone.trim() || null
-                    }
-                ], {
-                    onConflict: "id"
-                });
-                if (profileError) {
-                    throw profileError;
-                }
-            }
             if (!data.session) {
                 __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$hot$2d$toast$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"].success("تم إنشاء الحساب. تحقق من بريدك الإلكتروني ثم سجّل الدخول.");
                 router.replace("/login");
                 return;
             }
-            const { data: profile, error: profileError } = await supabase.from("profiles").select("school_id, role").eq("id", data.user?.id || "").maybeSingle();
+            const user = data.user;
+            if (!user) {
+                throw new Error("تعذر التحقق من المستخدم بعد إنشاء الحساب.");
+            }
+            const { error: profileError } = await supabase.from("profiles").upsert([
+                {
+                    id: user.id,
+                    full_name: fullName.trim(),
+                    phone: phone.trim() || null
+                }
+            ], {
+                onConflict: "id"
+            });
             if (profileError) {
+                if (isMissingProfilesTableError(profileError.message)) {
+                    __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$hot$2d$toast$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"].success("تم إنشاء الحساب بنجاح.");
+                    (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$hot$2d$toast$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"])("يرجى تنفيذ SUPABASE_SETUP.sql لإنشاء جدول profiles.");
+                    router.replace("/dashboard");
+                    return;
+                }
                 throw profileError;
+            }
+            const { data: profile, error: profileFetchError } = await supabase.from("profiles").select("school_id, role").eq("id", user.id).maybeSingle();
+            if (profileFetchError) {
+                if (isMissingProfilesTableError(profileFetchError.message)) {
+                    __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$hot$2d$toast$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"].success("تم إنشاء الحساب بنجاح.");
+                    (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$hot$2d$toast$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"])("يرجى تنفيذ SUPABASE_SETUP.sql لإنشاء جدول profiles.");
+                    router.replace("/dashboard");
+                    return;
+                }
+                throw profileFetchError;
             }
             __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$hot$2d$toast$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"].success("تم إنشاء الحساب بنجاح.");
             if (!profile?.school_id || !profile?.role) {
@@ -571,8 +610,7 @@ function RegisterPage() {
             }
             router.replace("/dashboard");
         } catch (error) {
-            const message = error instanceof Error ? mapAuthError(error.message) : "تعذر إنشاء الحساب.";
-            __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$hot$2d$toast$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"].error(message);
+            showAuthError("register", error, "تعذر إنشاء الحساب.");
         } finally{
             setLoading(false);
         }
@@ -590,7 +628,7 @@ function RegisterPage() {
                     children: "تسجيل الدخول"
                 }, void 0, false, {
                     fileName: "[project]/app/register/page.tsx",
-                    lineNumber: 168,
+                    lineNumber: 221,
                     columnNumber: 11
                 }, void 0)
             ]
@@ -608,7 +646,7 @@ function RegisterPage() {
                     error: errors.fullName
                 }, void 0, false, {
                     fileName: "[project]/app/register/page.tsx",
-                    lineNumber: 175,
+                    lineNumber: 228,
                     columnNumber: 9
                 }, this),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$components$2f$ui$2f$Field$2e$tsx__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"], {
@@ -620,7 +658,7 @@ function RegisterPage() {
                     error: errors.email
                 }, void 0, false, {
                     fileName: "[project]/app/register/page.tsx",
-                    lineNumber: 177,
+                    lineNumber: 230,
                     columnNumber: 9
                 }, this),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$components$2f$ui$2f$Field$2e$tsx__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"], {
@@ -630,7 +668,7 @@ function RegisterPage() {
                     onChange: setPhone
                 }, void 0, false, {
                     fileName: "[project]/app/register/page.tsx",
-                    lineNumber: 179,
+                    lineNumber: 232,
                     columnNumber: 9
                 }, this),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$components$2f$ui$2f$Field$2e$tsx__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"], {
@@ -642,7 +680,7 @@ function RegisterPage() {
                     error: errors.password
                 }, void 0, false, {
                     fileName: "[project]/app/register/page.tsx",
-                    lineNumber: 181,
+                    lineNumber: 234,
                     columnNumber: 9
                 }, this),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$components$2f$ui$2f$Field$2e$tsx__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"], {
@@ -654,7 +692,7 @@ function RegisterPage() {
                     error: errors.confirmPassword
                 }, void 0, false, {
                     fileName: "[project]/app/register/page.tsx",
-                    lineNumber: 190,
+                    lineNumber: 243,
                     columnNumber: 9
                 }, this),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$components$2f$ui$2f$Button$2e$tsx__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"], {
@@ -663,18 +701,18 @@ function RegisterPage() {
                     children: loading ? "جارٍ إنشاء الحساب..." : "إنشاء الحساب"
                 }, void 0, false, {
                     fileName: "[project]/app/register/page.tsx",
-                    lineNumber: 199,
+                    lineNumber: 252,
                     columnNumber: 9
                 }, this)
             ]
         }, void 0, true, {
             fileName: "[project]/app/register/page.tsx",
-            lineNumber: 174,
+            lineNumber: 227,
             columnNumber: 7
         }, this)
     }, void 0, false, {
         fileName: "[project]/app/register/page.tsx",
-        lineNumber: 162,
+        lineNumber: 215,
         columnNumber: 5
     }, this);
 }

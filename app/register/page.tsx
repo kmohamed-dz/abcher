@@ -17,8 +17,22 @@ interface RegisterErrors {
   confirmPassword?: string;
 }
 
+function isMissingProfilesTableError(message: string) {
+  const value = message.toLowerCase();
+
+  return (
+    (value.includes("could not find the table") && value.includes("profiles")) ||
+    (value.includes("schema cache") && value.includes("profiles")) ||
+    (value.includes("relation") && value.includes("profiles") && value.includes("does not exist"))
+  );
+}
+
 function mapAuthError(message: string) {
   const value = message.toLowerCase();
+
+  if (isMissingProfilesTableError(value)) {
+    return "تم إنشاء الحساب لكن قاعدة البيانات غير مهيأة (جدول profiles غير موجود).";
+  }
 
   if (value.includes("user already registered")) {
     return "هذا البريد مسجل بالفعل. يمكنك تسجيل الدخول مباشرة.";
@@ -37,6 +51,29 @@ function mapAuthError(message: string) {
   }
 
   return "تعذر إنشاء الحساب. حاول مرة أخرى.";
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const candidate = (error as { message?: unknown }).message;
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate;
+    }
+  }
+
+  return fallback;
+}
+
+function showAuthError(context: string, error: unknown, fallback: string) {
+  const originalMessage = getErrorMessage(error, fallback);
+  console.warn(`[auth:${context}]`, originalMessage);
+  const friendlyMessage = mapAuthError(originalMessage);
+
+  toast.error(`${friendlyMessage} (${originalMessage})`);
 }
 
 const supabase = createClient();
@@ -96,6 +133,7 @@ export default function RegisterPage() {
         email: email.trim(),
         password,
         options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
           data: {
             full_name: fullName.trim(),
             phone: phone.trim() || null,
@@ -107,39 +145,55 @@ export default function RegisterPage() {
         throw error;
       }
 
-      const user = data.user;
-
-      if (user) {
-        const { error: profileError } = await supabase.from("profiles").upsert(
-          [
-            {
-              id: user.id,
-              full_name: fullName.trim(),
-              phone: phone.trim() || null,
-            },
-          ],
-          { onConflict: "id" },
-        );
-
-        if (profileError) {
-          throw profileError;
-        }
-      }
-
       if (!data.session) {
         toast.success("تم إنشاء الحساب. تحقق من بريدك الإلكتروني ثم سجّل الدخول.");
         router.replace("/login");
         return;
       }
 
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("school_id, role")
-        .eq("id", data.user?.id || "")
-        .maybeSingle<{ school_id: string | null; role: string | null }>();
+      const user = data.user;
+
+      if (!user) {
+        throw new Error("تعذر التحقق من المستخدم بعد إنشاء الحساب.");
+      }
+
+      const { error: profileError } = await supabase.from("profiles").upsert(
+        [
+          {
+            id: user.id,
+            full_name: fullName.trim(),
+            phone: phone.trim() || null,
+          },
+        ],
+        { onConflict: "id" },
+      );
 
       if (profileError) {
+        if (isMissingProfilesTableError(profileError.message)) {
+          toast.success("تم إنشاء الحساب بنجاح.");
+          toast("يرجى تنفيذ SUPABASE_SETUP.sql لإنشاء جدول profiles.");
+          router.replace("/dashboard");
+          return;
+        }
+
         throw profileError;
+      }
+
+      const { data: profile, error: profileFetchError } = await supabase
+        .from("profiles")
+        .select("school_id, role")
+        .eq("id", user.id)
+        .maybeSingle<{ school_id: string | null; role: string | null }>();
+
+      if (profileFetchError) {
+        if (isMissingProfilesTableError(profileFetchError.message)) {
+          toast.success("تم إنشاء الحساب بنجاح.");
+          toast("يرجى تنفيذ SUPABASE_SETUP.sql لإنشاء جدول profiles.");
+          router.replace("/dashboard");
+          return;
+        }
+
+        throw profileFetchError;
       }
 
       toast.success("تم إنشاء الحساب بنجاح.");
@@ -151,8 +205,7 @@ export default function RegisterPage() {
 
       router.replace("/dashboard");
     } catch (error) {
-      const message = error instanceof Error ? mapAuthError(error.message) : "تعذر إنشاء الحساب.";
-      toast.error(message);
+      showAuthError("register", error, "تعذر إنشاء الحساب.");
     } finally {
       setLoading(false);
     }

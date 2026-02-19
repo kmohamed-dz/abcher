@@ -470,8 +470,15 @@ var __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$supabase$2f$client$2e
 ;
 ;
 ;
+function isMissingProfilesTableError(message) {
+    const value = message.toLowerCase();
+    return value.includes("could not find the table") && value.includes("profiles") || value.includes("schema cache") && value.includes("profiles") || value.includes("relation") && value.includes("profiles") && value.includes("does not exist");
+}
 function mapAuthError(message) {
     const value = message.toLowerCase();
+    if (isMissingProfilesTableError(value)) {
+        return "تسجيل الدخول نجح لكن قاعدة البيانات غير مهيأة (جدول profiles غير موجود).";
+    }
     if (value.includes("invalid login credentials")) {
         return "البريد الإلكتروني أو كلمة المرور غير صحيحة.";
     }
@@ -483,6 +490,24 @@ function mapAuthError(message) {
     }
     return "تعذر تسجيل الدخول. تحقق من بياناتك ثم أعد المحاولة.";
 }
+function getErrorMessage(error, fallback) {
+    if (error instanceof Error && error.message) {
+        return error.message;
+    }
+    if (typeof error === "object" && error !== null && "message" in error) {
+        const candidate = error.message;
+        if (typeof candidate === "string" && candidate.trim()) {
+            return candidate;
+        }
+    }
+    return fallback;
+}
+function showAuthError(context, error, fallback) {
+    const originalMessage = getErrorMessage(error, fallback);
+    console.warn(`[auth:${context}]`, originalMessage);
+    const friendlyMessage = mapAuthError(originalMessage);
+    __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$hot$2d$toast$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"].error(`${friendlyMessage} (${originalMessage})`);
+}
 const supabase = (0, __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$supabase$2f$client$2e$ts__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["createClient"])();
 function LoginPage() {
     const router = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$navigation$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useRouter"])();
@@ -490,6 +515,14 @@ function LoginPage() {
     const [email, setEmail] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useState"])("");
     const [password, setPassword] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useState"])("");
     const [errors, setErrors] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useState"])({});
+    (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useEffect"])(()=>{
+        const params = new URLSearchParams(window.location.search);
+        const callbackError = params.get("error");
+        if (!callbackError) {
+            return;
+        }
+        __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$hot$2d$toast$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"].error(`تعذر إكمال المصادقة. (${callbackError})`);
+    }, []);
     const validate = ()=>{
         const nextErrors = {};
         if (!email.trim()) {
@@ -524,6 +557,12 @@ function LoginPage() {
             }
             let { data: profile, error: profileError } = await supabase.from("profiles").select("id, school_id, role").eq("id", user.id).maybeSingle();
             if (profileError) {
+                if (isMissingProfilesTableError(profileError.message)) {
+                    __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$hot$2d$toast$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"].success("تم تسجيل الدخول بنجاح.");
+                    (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$hot$2d$toast$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"])("يرجى تنفيذ SUPABASE_SETUP.sql لإنشاء جدول profiles.");
+                    router.replace("/dashboard");
+                    return;
+                }
                 throw profileError;
             }
             if (!profile) {
@@ -537,10 +576,22 @@ function LoginPage() {
                     onConflict: "id"
                 });
                 if (upsertError) {
+                    if (isMissingProfilesTableError(upsertError.message)) {
+                        __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$hot$2d$toast$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"].success("تم تسجيل الدخول بنجاح.");
+                        (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$hot$2d$toast$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"])("يرجى تنفيذ SUPABASE_SETUP.sql لإنشاء جدول profiles.");
+                        router.replace("/dashboard");
+                        return;
+                    }
                     throw upsertError;
                 }
                 const profileRes = await supabase.from("profiles").select("id, school_id, role").eq("id", user.id).maybeSingle();
                 if (profileRes.error) {
+                    if (isMissingProfilesTableError(profileRes.error.message)) {
+                        __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$hot$2d$toast$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"].success("تم تسجيل الدخول بنجاح.");
+                        (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$hot$2d$toast$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"])("يرجى تنفيذ SUPABASE_SETUP.sql لإنشاء جدول profiles.");
+                        router.replace("/dashboard");
+                        return;
+                    }
                     throw profileRes.error;
                 }
                 profile = profileRes.data ?? null;
@@ -552,8 +603,7 @@ function LoginPage() {
             }
             router.replace("/dashboard");
         } catch (error) {
-            const message = error instanceof Error ? mapAuthError(error.message) : "تعذر تسجيل الدخول.";
-            __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$hot$2d$toast$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"].error(message);
+            showAuthError("login", error, "تعذر تسجيل الدخول.");
         } finally{
             setLoading(false);
         }
@@ -571,7 +621,7 @@ function LoginPage() {
                     children: "إنشاء حساب"
                 }, void 0, false, {
                     fileName: "[project]/app/login/page.tsx",
-                    lineNumber: 151,
+                    lineNumber: 219,
                     columnNumber: 11
                 }, void 0)
             ]
@@ -590,7 +640,7 @@ function LoginPage() {
                     error: errors.email
                 }, void 0, false, {
                     fileName: "[project]/app/login/page.tsx",
-                    lineNumber: 158,
+                    lineNumber: 226,
                     columnNumber: 9
                 }, this),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$components$2f$ui$2f$Field$2e$tsx__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"], {
@@ -602,7 +652,7 @@ function LoginPage() {
                     error: errors.password
                 }, void 0, false, {
                     fileName: "[project]/app/login/page.tsx",
-                    lineNumber: 160,
+                    lineNumber: 228,
                     columnNumber: 9
                 }, this),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -613,12 +663,12 @@ function LoginPage() {
                         children: "نسيت كلمة المرور؟"
                     }, void 0, false, {
                         fileName: "[project]/app/login/page.tsx",
-                        lineNumber: 170,
+                        lineNumber: 238,
                         columnNumber: 11
                     }, this)
                 }, void 0, false, {
                     fileName: "[project]/app/login/page.tsx",
-                    lineNumber: 169,
+                    lineNumber: 237,
                     columnNumber: 9
                 }, this),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$components$2f$ui$2f$Button$2e$tsx__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"], {
@@ -627,18 +677,18 @@ function LoginPage() {
                     children: loading ? "جارٍ تسجيل الدخول..." : "دخول"
                 }, void 0, false, {
                     fileName: "[project]/app/login/page.tsx",
-                    lineNumber: 175,
+                    lineNumber: 243,
                     columnNumber: 9
                 }, this)
             ]
         }, void 0, true, {
             fileName: "[project]/app/login/page.tsx",
-            lineNumber: 157,
+            lineNumber: 225,
             columnNumber: 7
         }, this)
     }, void 0, false, {
         fileName: "[project]/app/login/page.tsx",
-        lineNumber: 145,
+        lineNumber: 213,
         columnNumber: 5
     }, this);
 }

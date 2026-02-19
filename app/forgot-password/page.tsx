@@ -9,6 +9,43 @@ import Button from "@/components/ui/Button";
 import Field from "@/components/ui/Field";
 import { createClient } from "@/lib/supabase/client";
 
+function mapAuthError(message: string) {
+  const value = message.toLowerCase();
+
+  if (value.includes("invalid email")) {
+    return "صيغة البريد الإلكتروني غير صحيحة.";
+  }
+
+  if (value.includes("for security purposes")) {
+    return "تم إرسال طلبات كثيرة. حاول مرة أخرى بعد قليل.";
+  }
+
+  return "تعذر إرسال رابط إعادة التعيين.";
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const candidate = (error as { message?: unknown }).message;
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate;
+    }
+  }
+
+  return fallback;
+}
+
+function showAuthError(context: string, error: unknown, fallback: string) {
+  const originalMessage = getErrorMessage(error, fallback);
+  console.warn(`[auth:${context}]`, originalMessage);
+  const friendlyMessage = mapAuthError(originalMessage);
+
+  toast.error(`${friendlyMessage} (${originalMessage})`);
+}
+
 const supabase = createClient();
 
 export default function ForgotPasswordPage() {
@@ -38,7 +75,7 @@ export default function ForgotPasswordPage() {
 
     try {
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: `${window.location.origin}/login`,
+        redirectTo: `${window.location.origin}/update-password`,
       });
 
       if (resetError) {
@@ -47,9 +84,8 @@ export default function ForgotPasswordPage() {
 
       setSent(true);
       toast.success("تم إرسال رابط إعادة التعيين إلى بريدك الإلكتروني.");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "تعذر إرسال رابط إعادة التعيين.";
-      toast.error(message);
+    } catch (error) {
+      showAuthError("forgot-password", error, "تعذر إرسال رابط إعادة التعيين.");
     } finally {
       setLoading(false);
     }

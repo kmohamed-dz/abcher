@@ -1284,6 +1284,26 @@ img, video {
   transition-timing-function: cubic-bezier(.4, 0, .2, 1);
 }
 
+.\[auth\:dashboard-guard\] {
+  auth: dashboard-guard;
+}
+
+.\[auth\:onboarding-create-school\] {
+  auth: onboarding-create-school;
+}
+
+.\[auth\:onboarding-join-school\] {
+  auth: onboarding-join-school;
+}
+
+.\[auth\:onboarding-load\] {
+  auth: onboarding-load;
+}
+
+.\[auth\:onboarding-role\] {
+  auth: onboarding-role;
+}
+
 * {
   font-family: Cairo, sans-serif;
 }

@@ -1,0 +1,2 @@
+:HL["/_next/static/css/c202492d8d8dfcda.css","style"]
+0:{"buildId":"axpgTAzntOH_RfEGBtxfH","tree":{"name":"","paramType":null,"paramKey":"","hasRuntimePrefetch":false,"slots":{"children":{"name":"update-password","paramType":null,"paramKey":"update-password","hasRuntimePrefetch":false,"slots":{"children":{"name":"__PAGE__","paramType":null,"paramKey":"__PAGE__","hasRuntimePrefetch":false,"slots":null,"isRootLayout":false}},"isRootLayout":false}},"isRootLayout":true},"staleTime":300}

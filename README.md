@@ -21,15 +21,30 @@ npm install
 - `avatars`
 - `library`
 
-## 4) إعداد ملف البيئة `.env.local`
-أنشئ ملف `.env.local` في جذر المشروع وضع القيم التالية:
+## 4) إعداد متغيرات البيئة
+انسخ الملف المثال ثم أضف القيم الصحيحة من لوحة Supabase:
+
+```bash
+cp .env.local.example .env.local
+```
+
+الحد الأدنى المطلوب لتشغيل المصادقة:
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
-SUPABASE_SERVICE_ROLE_KEY=YOUR_SUPABASE_SERVICE_ROLE_KEY
-NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
+
+اختياري (إذا استُخدم لاحقًا في وظائف سيرفر مخصصة):
+```env
+SUPABASE_SERVICE_ROLE_KEY=YOUR_SUPABASE_SERVICE_ROLE_KEY
+```
+
+إعدادات Redirect في Supabase Auth:
+- `Site URL`: `http://localhost:3000`
+- `Redirect URLs`:
+  - `http://localhost:3000/auth/callback`
+  - `http://localhost:3000/update-password`
 
 ## 5) تشغيل المشروع محليًا
 ```bash
