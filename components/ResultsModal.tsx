@@ -7,16 +7,15 @@ import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
 import type { Student } from "@/lib/types";
 
-const supabase = createClient();
-
 interface ExamItem {
   id: string;
   title: string;
-  level: string;
+  exam_date: string;
   max_score: number;
+  level: string;
 }
 
-interface ResultRow {
+interface ResultRecord {
   student_id: string;
   score: number;
 }
@@ -25,38 +24,51 @@ interface ResultsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  schoolId: string;
+  schoolId: string | null;
   exam: ExamItem;
   students: Student[];
+  canManage: boolean;
 }
 
-export default function ResultsModal({ isOpen, onClose, onSuccess, schoolId, exam, students }: ResultsModalProps) {
-  const [scores, setScores] = useState<Record<string, string>>({});
+const supabase = createClient();
+
+export default function ResultsModal({
+  isOpen,
+  onClose,
+  onSuccess,
+  schoolId,
+  exam,
+  students,
+  canManage,
+}: ResultsModalProps) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [scores, setScores] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!isOpen || !schoolId) return;
 
-    const fetchScores = async () => {
+    const loadResults = async () => {
       setLoading(true);
 
       try {
         const { data, error } = await supabase
-          .from("exam_results")
-          .select("student_id, score")
+          .from("results")
+          .select("student_id,score")
           .eq("school_id", schoolId)
           .eq("exam_id", exam.id);
 
-        if (error) throw error;
+        if (error) {
+          throw error;
+        }
 
         const map: Record<string, string> = {};
-        ((data as ResultRow[]) ?? []).forEach((item) => {
-          map[item.student_id] = String(item.score);
+        ((data as ResultRecord[]) ?? []).forEach((row) => {
+          map[row.student_id] = String(row.score);
         });
 
         setScores(map);
-      } catch (error: unknown) {
+      } catch (error) {
         const message = error instanceof Error ? error.message : "تعذر تحميل درجات الاختبار.";
         toast.error(message);
       } finally {
@@ -64,72 +76,75 @@ export default function ResultsModal({ isOpen, onClose, onSuccess, schoolId, exa
       }
     };
 
-    void fetchScores();
+    void loadResults();
   }, [isOpen, schoolId, exam.id]);
 
-  const totalEntered = useMemo(() => {
-    return Object.values(scores).filter((value) => value.trim() !== "").length;
-  }, [scores]);
+  const enteredCount = useMemo(
+    () => Object.values(scores).filter((value) => value.trim().length > 0).length,
+    [scores],
+  );
 
   if (!isOpen) {
     return null;
   }
 
-  const closeOnOverlayClick = (event: React.MouseEvent<HTMLDivElement>) => {
+  const onOverlayClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.target === event.currentTarget) {
       onClose();
     }
   };
 
-  const updateScore = (studentId: string, value: string) => {
-    setScores((prev) => ({ ...prev, [studentId]: value }));
-  };
-
   const saveResults = async () => {
-    if (!schoolId) {
-      toast.error("لا يمكن حفظ النتائج بدون معرف المدرسة.");
+    if (!canManage) {
+      toast.error("ليس لديك صلاحية تعديل النتائج.");
       return;
     }
 
-    const payload: { school_id: string; exam_id: string; student_id: string; score: number }[] = [];
+    if (!schoolId) {
+      toast.error("تعذر معرفة المدرسة الحالية.");
+      return;
+    }
+
+    const rows: Array<{ school_id: string; exam_id: string; student_id: string; score: number }> = [];
 
     for (const student of students) {
-      const value = (scores[student.id] ?? "").trim();
-      if (!value) continue;
+      const raw = (scores[student.id] || "").trim();
+      if (!raw) continue;
 
-      const numericValue = Number(value);
-
-      if (!Number.isFinite(numericValue) || numericValue < 0 || numericValue > exam.max_score) {
-        toast.error(`درجة الطالب ${student.full_name} غير صالحة.`);
+      const value = Number(raw);
+      if (!Number.isFinite(value) || value < 0 || value > exam.max_score) {
+        toast.error(`درجة غير صالحة للطالب ${student.full_name}.`);
         return;
       }
 
-      payload.push({
+      rows.push({
         school_id: schoolId,
         exam_id: exam.id,
         student_id: student.id,
-        score: numericValue,
+        score: value,
       });
     }
 
-    if (payload.length === 0) {
-      toast.error("أدخل درجة طالب واحد على الأقل.");
+    if (rows.length === 0) {
+      toast.error("أدخل درجة واحدة على الأقل.");
       return;
     }
 
     setSaving(true);
 
     try {
-      const { error } = await supabase.from("exam_results").upsert(payload, {
+      const { error } = await supabase.from("results").upsert(rows, {
         onConflict: "exam_id,student_id",
       });
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
-      toast.success("تم حفظ الدرجات بنجاح.");
+      toast.success("تم حفظ النتائج بنجاح.");
       onSuccess();
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "تعذر حفظ الدرجات.";
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "تعذر حفظ النتائج.";
       toast.error(message);
     } finally {
       setSaving(false);
@@ -139,47 +154,47 @@ export default function ResultsModal({ isOpen, onClose, onSuccess, schoolId, exa
   return (
     <div
       dir="rtl"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={closeOnOverlayClick}
       role="presentation"
+      onClick={onOverlayClick}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
     >
-      <div className="w-full max-w-3xl rounded-2xl bg-white p-6 shadow-xl">
-        <div className="mb-5 flex items-center justify-between">
+      <div className="w-full max-w-4xl rounded-xl bg-white p-6 shadow-md">
+        <div className="mb-4 flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-bold text-primary-700">إدخال درجات الاختبار</h2>
+            <h2 className="text-xl font-bold text-primary-700">درجات الاختبار: {exam.title}</h2>
             <p className="text-sm text-gray-600">
-              {exam.title} - الدرجة القصوى: {exam.max_score}
+              المستوى: {exam.level} | الدرجة القصوى: {exam.max_score}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 text-gray-500 hover:bg-gray-100"
             aria-label="إغلاق"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 text-gray-600 hover:bg-gray-100"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         {loading ? (
-          <div className="flex min-h-[180px] items-center justify-center">
-            <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary-100 border-t-primary-600" />
+          <div className="flex min-h-[260px] items-center justify-center">
+            <div className="h-11 w-11 animate-spin rounded-full border-4 border-primary-100 border-t-primary-600" />
           </div>
         ) : students.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-primary-200 bg-primary-50/40 p-5 text-center">
-            <p className="mb-4 text-gray-600">لا يوجد طلبة في المدرسة لإدخال النتائج.</p>
+          <div className="rounded-lg border border-dashed border-primary-200 bg-primary-50 p-6 text-center">
+            <p className="mb-4 text-gray-600">لا يوجد طلبة لإدخال النتائج.</p>
             <a
               href="/dashboard/students"
               className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-primary-600 px-4 py-2 text-white hover:bg-primary-700"
             >
-              إضافة الطلبة
+              إضافة طلبة
             </a>
           </div>
         ) : (
           <>
-            <p className="mb-3 text-sm text-gray-600">عدد الدرجات المدخلة: {totalEntered}</p>
+            <p className="mb-3 text-sm text-gray-600">عدد الدرجات المدخلة: {enteredCount}</p>
 
-            <div className="max-h-[360px] overflow-y-auto rounded-xl border border-gray-100">
+            <div className="max-h-[380px] overflow-y-auto rounded-lg border border-gray-100">
               <table className="min-w-full text-right">
                 <thead className="bg-primary-50 text-sm text-primary-700">
                   <tr>
@@ -198,11 +213,10 @@ export default function ResultsModal({ isOpen, onClose, onSuccess, schoolId, exa
                           type="number"
                           min="0"
                           max={exam.max_score}
-                          step="0.1"
-                          value={scores[student.id] ?? ""}
-                          onChange={(event) => updateScore(student.id, event.target.value)}
-                          className="w-28 rounded-lg border border-gray-200 px-3 py-2 text-[16px] outline-none ring-primary-200 transition focus:ring"
-                          placeholder="0"
+                          value={scores[student.id] || ""}
+                          onChange={(event) => setScores((previous) => ({ ...previous, [student.id]: event.target.value }))}
+                          disabled={!canManage}
+                          className="w-28 rounded-lg border border-gray-200 px-3 py-2 text-[16px] outline-none ring-primary-200 focus:ring disabled:bg-gray-100"
                         />
                       </td>
                     </tr>
@@ -211,25 +225,26 @@ export default function ResultsModal({ isOpen, onClose, onSuccess, schoolId, exa
               </table>
             </div>
 
-            <div className="mt-5 flex justify-end gap-2">
+            <div className="mt-6 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={onClose}
-                disabled={saving}
-                className="min-h-[44px] rounded-lg border border-gray-200 px-4 py-2 text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed"
+                className="min-h-[44px] rounded-lg border border-gray-200 px-4 py-2 text-gray-700 hover:bg-gray-100"
               >
-                إلغاء
+                إغلاق
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void saveResults();
-                }}
-                disabled={saving}
-                className="min-h-[44px] rounded-lg bg-primary-600 px-4 py-2 text-white hover:bg-primary-700 disabled:cursor-not-allowed"
-              >
-                {saving ? "جار الحفظ..." : "حفظ الدرجات"}
-              </button>
+              {canManage ? (
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => {
+                    void saveResults();
+                  }}
+                  className="min-h-[44px] rounded-lg bg-primary-600 px-4 py-2 text-white hover:bg-primary-700 disabled:opacity-60"
+                >
+                  {saving ? "جارٍ الحفظ..." : "حفظ الدرجات"}
+                </button>
+              ) : null}
             </div>
           </>
         )}

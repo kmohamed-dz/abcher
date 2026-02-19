@@ -7,14 +7,12 @@ import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
 import { LEVELS } from "@/lib/utils";
 
-const supabase = createClient();
-
 interface HomeworkItem {
   id: string;
   school_id: string;
   title: string;
   level: string;
-  details: string | null;
+  description: string | null;
   due_date: string | null;
 }
 
@@ -22,32 +20,34 @@ interface HomeworkModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  schoolId: string;
+  schoolId: string | null;
   homework: HomeworkItem | null;
 }
 
 interface HomeworkForm {
   title: string;
   level: string;
-  details: string;
+  description: string;
   due_date: string;
 }
+
+interface HomeworkErrors {
+  title?: string;
+  level?: string;
+}
+
+const supabase = createClient();
 
 const INITIAL_FORM: HomeworkForm = {
   title: "",
   level: LEVELS[0],
-  details: "",
+  description: "",
   due_date: "",
 };
 
-export default function HomeworkModal({
-  isOpen,
-  onClose,
-  onSuccess,
-  schoolId,
-  homework,
-}: HomeworkModalProps) {
+export default function HomeworkModal({ isOpen, onClose, onSuccess, schoolId, homework }: HomeworkModalProps) {
   const [form, setForm] = useState<HomeworkForm>(INITIAL_FORM);
+  const [errors, setErrors] = useState<HomeworkErrors>({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -57,37 +57,49 @@ export default function HomeworkModal({
       setForm({
         title: homework.title,
         level: homework.level,
-        details: homework.details ?? "",
-        due_date: homework.due_date ?? "",
+        description: homework.description || "",
+        due_date: homework.due_date || "",
       });
-      return;
+    } else {
+      setForm(INITIAL_FORM);
     }
 
-    setForm(INITIAL_FORM);
+    setErrors({});
   }, [isOpen, homework]);
 
   if (!isOpen) {
     return null;
   }
 
-  const closeOnOverlayClick = (event: React.MouseEvent<HTMLDivElement>) => {
+  const onOverlayClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.target === event.currentTarget) {
       onClose();
     }
   };
 
-  const setValue = (key: keyof HomeworkForm, value: string) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+  const validate = () => {
+    const nextErrors: HomeworkErrors = {};
+
+    if (!form.title.trim()) {
+      nextErrors.title = "عنوان الواجب مطلوب.";
+    }
+
+    if (!form.level.trim()) {
+      nextErrors.level = "المستوى مطلوب.";
+    }
+
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
   };
 
   const saveHomework = async () => {
-    if (!form.title.trim()) {
-      toast.error("يرجى كتابة عنوان الواجب.");
+    if (!validate()) {
+      toast.error("تحقق من الحقول المطلوبة.");
       return;
     }
 
     if (!schoolId) {
-      toast.error("لا يمكن الحفظ بدون معرف المدرسة.");
+      toast.error("تعذر معرفة المدرسة الحالية.");
       return;
     }
 
@@ -100,32 +112,38 @@ export default function HomeworkModal({
           .update({
             title: form.title.trim(),
             level: form.level,
-            details: form.details.trim() || null,
+            description: form.description.trim() || null,
             due_date: form.due_date || null,
           })
           .eq("id", homework.id)
           .eq("school_id", schoolId);
 
-        if (error) throw error;
-        toast.success("تم تحديث الواجب.");
+        if (error) {
+          throw error;
+        }
+
+        toast.success("تم تعديل الواجب.");
       } else {
         const { error } = await supabase.from("homework").insert([
           {
             school_id: schoolId,
             title: form.title.trim(),
             level: form.level,
-            details: form.details.trim() || null,
+            description: form.description.trim() || null,
             due_date: form.due_date || null,
           },
         ]);
 
-        if (error) throw error;
+        if (error) {
+          throw error;
+        }
+
         toast.success("تمت إضافة الواجب.");
       }
 
       onSuccess();
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "تعذر حفظ بيانات الواجب.";
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "تعذر حفظ الواجب.";
       toast.error(message);
     } finally {
       setSaving(false);
@@ -135,18 +153,18 @@ export default function HomeworkModal({
   return (
     <div
       dir="rtl"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={closeOnOverlayClick}
       role="presentation"
+      onClick={onOverlayClick}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
     >
-      <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl">
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-primary-700">{homework ? "تعديل واجب" : "إضافة واجب جديد"}</h2>
+      <div className="w-full max-w-xl rounded-xl bg-white p-6 shadow-md">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-xl font-bold text-primary-700">{homework ? "تعديل واجب" : "إضافة واجب"}</h2>
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 text-gray-500 hover:bg-gray-100"
             aria-label="إغلاق"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 text-gray-600 hover:bg-gray-100"
           >
             <X className="h-4 w-4" />
           </button>
@@ -154,26 +172,28 @@ export default function HomeworkModal({
 
         <div className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700" htmlFor="homework-title">
+            <label htmlFor="hw-title" className="mb-1 block text-sm font-semibold text-gray-700">
               عنوان الواجب
             </label>
             <input
-              id="homework-title"
+              id="hw-title"
               value={form.title}
-              onChange={(event) => setValue("title", event.target.value)}
-              className="w-full rounded-lg border border-gray-200 px-3 py-3 text-[16px] outline-none ring-primary-200 transition focus:ring"
+              onChange={(event) => setForm((previous) => ({ ...previous, title: event.target.value }))}
+              className="w-full rounded-lg border border-gray-200 px-3 py-3 text-[16px] outline-none ring-primary-200 focus:ring"
+              placeholder="أدخل عنوانًا واضحًا"
             />
+            {errors.title ? <p className="mt-1 text-sm text-red-600">{errors.title}</p> : null}
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700" htmlFor="homework-level">
-              المستوى الدراسي
+            <label htmlFor="hw-level" className="mb-1 block text-sm font-semibold text-gray-700">
+              المستوى
             </label>
             <select
-              id="homework-level"
+              id="hw-level"
               value={form.level}
-              onChange={(event) => setValue("level", event.target.value)}
-              className="w-full rounded-lg border border-gray-200 px-3 py-3 text-[16px] outline-none ring-primary-200 transition focus:ring"
+              onChange={(event) => setForm((previous) => ({ ...previous, level: event.target.value }))}
+              className="w-full rounded-lg border border-gray-200 px-3 py-3 text-[16px] outline-none ring-primary-200 focus:ring"
             >
               {LEVELS.map((level) => (
                 <option key={level} value={level}>
@@ -181,31 +201,33 @@ export default function HomeworkModal({
                 </option>
               ))}
             </select>
+            {errors.level ? <p className="mt-1 text-sm text-red-600">{errors.level}</p> : null}
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700" htmlFor="homework-due-date">
-              موعد التسليم (اختياري)
+            <label htmlFor="hw-due-date" className="mb-1 block text-sm font-semibold text-gray-700">
+              تاريخ التسليم
             </label>
             <input
-              id="homework-due-date"
+              id="hw-due-date"
               type="date"
               value={form.due_date}
-              onChange={(event) => setValue("due_date", event.target.value)}
-              className="w-full rounded-lg border border-gray-200 px-3 py-3 text-[16px] outline-none ring-primary-200 transition focus:ring"
+              onChange={(event) => setForm((previous) => ({ ...previous, due_date: event.target.value }))}
+              className="w-full rounded-lg border border-gray-200 px-3 py-3 text-[16px] outline-none ring-primary-200 focus:ring"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700" htmlFor="homework-details">
-              تفاصيل الواجب
+            <label htmlFor="hw-description" className="mb-1 block text-sm font-semibold text-gray-700">
+              وصف الواجب
             </label>
             <textarea
-              id="homework-details"
-              value={form.details}
-              onChange={(event) => setValue("details", event.target.value)}
+              id="hw-description"
               rows={4}
-              className="w-full rounded-lg border border-gray-200 px-3 py-3 text-[16px] outline-none ring-primary-200 transition focus:ring"
+              value={form.description}
+              onChange={(event) => setForm((previous) => ({ ...previous, description: event.target.value }))}
+              className="w-full rounded-lg border border-gray-200 px-3 py-3 text-[16px] outline-none ring-primary-200 focus:ring"
+              placeholder="وصف مختصر للتكليف"
             />
           </div>
         </div>
@@ -214,20 +236,19 @@ export default function HomeworkModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={saving}
-            className="min-h-[44px] rounded-lg border border-gray-200 px-4 py-2 text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed"
+            className="min-h-[44px] rounded-lg border border-gray-200 px-4 py-2 text-gray-700 hover:bg-gray-100"
           >
             إلغاء
           </button>
           <button
             type="button"
+            disabled={saving}
             onClick={() => {
               void saveHomework();
             }}
-            disabled={saving}
-            className="min-h-[44px] rounded-lg bg-primary-600 px-4 py-2 text-white hover:bg-primary-700 disabled:cursor-not-allowed"
+            className="min-h-[44px] rounded-lg bg-primary-600 px-4 py-2 text-white hover:bg-primary-700 disabled:opacity-60"
           >
-            {saving ? "جار الحفظ..." : "حفظ"}
+            {saving ? "جارٍ الحفظ..." : "حفظ"}
           </button>
         </div>
       </div>

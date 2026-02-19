@@ -1,0 +1,20 @@
+{
+  "/_not-found/page": "/_not-found",
+  "/_global-error/page": "/_global-error",
+  "/forgot-password/page": "/forgot-password",
+  "/onboarding/page": "/onboarding",
+  "/login/page": "/login",
+  "/page": "/",
+  "/register/page": "/register",
+  "/dashboard/attendance/page": "/dashboard/attendance",
+  "/dashboard/authority/page": "/dashboard/authority",
+  "/dashboard/messages/page": "/dashboard/messages",
+  "/dashboard/library/page": "/dashboard/library",
+  "/dashboard/homework/page": "/dashboard/homework",
+  "/dashboard/page": "/dashboard",
+  "/dashboard/reports/page": "/dashboard/reports",
+  "/dashboard/settings/page": "/dashboard/settings",
+  "/dashboard/results/page": "/dashboard/results",
+  "/dashboard/teachers/page": "/dashboard/teachers",
+  "/dashboard/students/[id]/page": "/dashboard/students/[id]"
+}

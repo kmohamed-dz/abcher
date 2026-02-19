@@ -5,14 +5,14 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-function parseDate(value: string | Date) {
-  return value instanceof Date ? value : new Date(value);
+function parseDate(date: string | Date) {
+  return date instanceof Date ? date : new Date(date);
 }
 
-export function formatDate(value: string | Date) {
-  const date = parseDate(value);
+export function formatDate(date: string | Date) {
+  const parsed = parseDate(date);
 
-  if (Number.isNaN(date.getTime())) {
+  if (Number.isNaN(parsed.getTime())) {
     return "-";
   }
 
@@ -20,13 +20,13 @@ export function formatDate(value: string | Date) {
     year: "numeric",
     month: "long",
     day: "numeric",
-  }).format(date);
+  }).format(parsed);
 }
 
-export function formatDateTime(value: string | Date) {
-  const date = parseDate(value);
+export function formatDateTime(date: string | Date) {
+  const parsed = parseDate(date);
 
-  if (Number.isNaN(date.getTime())) {
+  if (Number.isNaN(parsed.getTime())) {
     return "-";
   }
 
@@ -36,7 +36,7 @@ export function formatDateTime(value: string | Date) {
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(date);
+  }).format(parsed);
 }
 
 export const WILAYAS = [
@@ -101,11 +101,11 @@ export const WILAYAS = [
 ] as const;
 
 export const LEVELS = [
-  "تحضيري",
-  "السنة الأولى",
-  "السنة الثانية",
-  "السنة الثالثة",
-  "السنة الرابعة",
-  "السنة الخامسة",
-  "حفظ كامل",
+  "المبتدئ",
+  "جزء عم",
+  "جزء تبارك",
+  "ثلث القرآن",
+  "نصف القرآن",
+  "ثلاثة أرباع القرآن",
+  "الحفظ الكامل",
 ] as const;

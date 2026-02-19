@@ -4,8 +4,8 @@ import { Toaster } from "react-hot-toast";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "أبشر",
-  description: "منصة إدارة المدارس القرآنية",
+  title: "أبشر - إدارة المدارس القرآنية",
+  description: "منصة عربية لإدارة المدارس القرآنية",
 };
 
 export default function RootLayout({
@@ -15,12 +15,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ar" dir="rtl">
-      <body className="min-h-screen bg-beige-100 text-gray-900 antialiased">
+      <body style={{ backgroundColor: "#faf8f5" }} className="min-h-screen text-gray-900 antialiased">
         {children}
         <Toaster
           position="top-center"
           toastOptions={{
-            duration: 3200,
+            duration: 3000,
             style: {
               fontFamily: "Cairo, sans-serif",
             },

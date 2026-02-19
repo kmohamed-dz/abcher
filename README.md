@@ -1,57 +1,58 @@
-# منصة أبشر - Abshir Dashboard
+# أبشر - نظام إدارة المدارس القرآنية
 
-منصة **Next.js 14 + TypeScript + Supabase** لإدارة المدارس القرآنية باللغة العربية وواجهة RTL.
+منصة SaaS عربية RTL مبنية بـ **Next.js 14 + TypeScript + Tailwind CSS + Supabase** لإدارة الطلبة والمعلمين والحضور والواجبات والنتائج والرسائل.
 
-## المميزات
-- إدارة الطلبة والمعلمين (CRUD كامل)
-- تسجيل الحضور اليومي مع `upsert` على `(student_id, date)`
-- تقارير الحضور ونسبة الالتزام وتصدير CSV
-- رسائل فورية عبر Supabase Realtime
-- إدارة الواجبات والاختبارات والنتائج
-- صفحة ملف الطالب (حضور + نتائج)
-- رفع الصورة الشخصية إلى bucket `avatars`
-- مكتبة ملفات تعليمية عبر Supabase Storage
-- صلاحيات وحماية بيانات عبر RLS لكل الجداول
-
-## المتطلبات
-- Node.js 18+
-- npm 9+
-- مشروع Supabase جاهز
-
-## متغيرات البيئة المطلوبة
-أنشئ ملف `.env.local` وأضف:
-
-```env
-NEXT_PUBLIC_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
-SUPABASE_SERVICE_ROLE_KEY=YOUR_SUPABASE_SERVICE_ROLE_KEY
+## 1) استنساخ المشروع
+```bash
+git clone https://github.com/kmohamed-dz/abcher.git
+cd abcher
 ```
 
-## إعداد قاعدة البيانات (Supabase)
-1. افتح Supabase Dashboard.
-2. اذهب إلى SQL Editor.
-3. الصق محتوى ملف `SUPABASE_SETUP.sql` وشغّله بالكامل.
-4. تأكد من إنشاء buckets التالية:
+## 2) تثبيت الحزم
+```bash
+npm install
+```
+
+## 3) إعداد قاعدة بيانات Supabase
+1. افتح مشروع Supabase.
+2. ادخل إلى **SQL Editor**.
+3. نفّذ ملف `SUPABASE_SETUP.sql` بالكامل.
+4. تأكد من إنشاء Bucketين:
 - `avatars`
 - `library`
 
-## التشغيل المحلي
+## 4) إعداد ملف البيئة `.env.local`
+أنشئ ملف `.env.local` في جذر المشروع وضع القيم التالية:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY=YOUR_SUPABASE_SERVICE_ROLE_KEY
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+```
+
+## 5) تشغيل المشروع محليًا
 ```bash
-npm install
 npm run dev
 ```
 
 ثم افتح:
 `http://localhost:3000`
 
-## أوامر مفيدة
+## 6) بناء المشروع للإنتاج
 ```bash
 npm run build
-npm run lint
+npm start
 ```
 
+## 7) النشر على Vercel
+1. اربط المشروع بـ Vercel.
+2. أضف نفس متغيرات البيئة الموجودة في `.env.local` داخل إعدادات Vercel.
+3. نفّذ النشر.
+
 ## ملاحظات مهمة
-- جميع الاستعلامات (عدا auth) مربوطة بـ `school_id`.
-- صفحة الجهة الوصية تظهر فقط للدور `authority_admin`.
-- إعدادات المدرسة تظهر فقط للدور `school_admin`.
-- جميع الواجهات مبنية باتجاه RTL ومتوافقة مع العربية.
+- كل الاستعلامات (باستثناء auth) تعتمد على `school_id`.
+- رفع الصورة الشخصية يتم داخل bucket `avatars`.
+- مكتبة الموارد تستخدم bucket `library`.
+- الرسائل تعمل عبر Supabase Realtime.
+- سياسات RLS مفعلة لكل الجداول في `SUPABASE_SETUP.sql`.

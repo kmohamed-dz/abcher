@@ -11,7 +11,7 @@ interface TeacherModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  schoolId: string;
+  schoolId: string | null;
   teacher: Teacher | null;
 }
 
@@ -19,6 +19,11 @@ interface TeacherForm {
   full_name: string;
   specialization: string;
   phone: string;
+}
+
+interface TeacherFormErrors {
+  full_name?: string;
+  specialization?: string;
 }
 
 const supabase = createClient();
@@ -31,6 +36,7 @@ const INITIAL_FORM: TeacherForm = {
 
 export default function TeacherModal({ isOpen, onClose, onSuccess, schoolId, teacher }: TeacherModalProps) {
   const [form, setForm] = useState<TeacherForm>(INITIAL_FORM);
+  const [errors, setErrors] = useState<TeacherFormErrors>({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -42,34 +48,50 @@ export default function TeacherModal({ isOpen, onClose, onSuccess, schoolId, tea
         specialization: teacher.specialization,
         phone: teacher.phone ?? "",
       });
-      return;
+    } else {
+      setForm(INITIAL_FORM);
     }
 
-    setForm(INITIAL_FORM);
+    setErrors({});
   }, [isOpen, teacher]);
 
   if (!isOpen) {
     return null;
   }
 
-  const closeOnOverlayClick = (event: React.MouseEvent<HTMLDivElement>) => {
+  const onOverlayClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.target === event.currentTarget) {
       onClose();
     }
   };
 
   const setValue = (key: keyof TeacherForm, value: string) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    setForm((previous) => ({ ...previous, [key]: value }));
+  };
+
+  const validate = () => {
+    const nextErrors: TeacherFormErrors = {};
+
+    if (!form.full_name.trim()) {
+      nextErrors.full_name = "يرجى إدخال الاسم الكامل.";
+    }
+
+    if (!form.specialization.trim()) {
+      nextErrors.specialization = "يرجى إدخال التخصص.";
+    }
+
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
   };
 
   const saveTeacher = async () => {
-    if (!form.full_name.trim() || !form.specialization.trim()) {
-      toast.error("يرجى تعبئة الاسم والتخصص.");
+    if (!validate()) {
+      toast.error("تحقق من الحقول المطلوبة.");
       return;
     }
 
     if (!schoolId) {
-      toast.error("لا يمكن الحفظ بدون معرف المدرسة.");
+      toast.error("تعذر معرفة المدرسة الحالية.");
       return;
     }
 
@@ -87,7 +109,10 @@ export default function TeacherModal({ isOpen, onClose, onSuccess, schoolId, tea
           .eq("id", teacher.id)
           .eq("school_id", schoolId);
 
-        if (error) throw error;
+        if (error) {
+          throw error;
+        }
+
         toast.success("تم تحديث بيانات المعلم.");
       } else {
         const { error } = await supabase.from("teachers").insert([
@@ -99,12 +124,15 @@ export default function TeacherModal({ isOpen, onClose, onSuccess, schoolId, tea
           },
         ]);
 
-        if (error) throw error;
+        if (error) {
+          throw error;
+        }
+
         toast.success("تمت إضافة المعلم بنجاح.");
       }
 
       onSuccess();
-    } catch (error: unknown) {
+    } catch (error) {
       const message = error instanceof Error ? error.message : "تعذر حفظ بيانات المعلم.";
       toast.error(message);
     } finally {
@@ -116,16 +144,16 @@ export default function TeacherModal({ isOpen, onClose, onSuccess, schoolId, tea
     <div
       dir="rtl"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={closeOnOverlayClick}
+      onClick={onOverlayClick}
       role="presentation"
     >
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-primary-700">{teacher ? "تعديل المعلم" : "إضافة معلم جديد"}</h2>
+      <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-md">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-xl font-bold text-primary-700">{teacher ? "تعديل معلم" : "إضافة معلم"}</h2>
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 text-gray-500 hover:bg-gray-100"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 text-gray-600 hover:bg-gray-100"
             aria-label="إغلاق"
           >
             <X className="h-4 w-4" />
@@ -134,51 +162,53 @@ export default function TeacherModal({ isOpen, onClose, onSuccess, schoolId, tea
 
         <div className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700" htmlFor="teacher-name">
+            <label htmlFor="teacher-full-name" className="mb-1 block text-sm font-semibold text-gray-700">
               الاسم الكامل
             </label>
             <input
-              id="teacher-name"
+              id="teacher-full-name"
               value={form.full_name}
               onChange={(event) => setValue("full_name", event.target.value)}
-              placeholder="أدخل اسم المعلم"
-              className="w-full rounded-lg border border-gray-200 px-3 py-3 text-[16px] outline-none ring-primary-200 transition focus:ring"
+              className="w-full rounded-lg border border-gray-200 px-3 py-3 text-[16px] outline-none ring-primary-200 focus:ring"
+              placeholder="أدخل الاسم الكامل"
             />
+            {errors.full_name ? <p className="mt-1 text-sm text-red-600">{errors.full_name}</p> : null}
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700" htmlFor="teacher-specialization">
+            <label htmlFor="teacher-specialization" className="mb-1 block text-sm font-semibold text-gray-700">
               التخصص
             </label>
             <input
               id="teacher-specialization"
               value={form.specialization}
               onChange={(event) => setValue("specialization", event.target.value)}
-              placeholder="مثال: تجويد - فقه - لغة عربية"
-              className="w-full rounded-lg border border-gray-200 px-3 py-3 text-[16px] outline-none ring-primary-200 transition focus:ring"
+              className="w-full rounded-lg border border-gray-200 px-3 py-3 text-[16px] outline-none ring-primary-200 focus:ring"
+              placeholder="مثال: تجويد، فقه، لغة عربية"
             />
+            {errors.specialization ? <p className="mt-1 text-sm text-red-600">{errors.specialization}</p> : null}
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700" htmlFor="teacher-phone">
+            <label htmlFor="teacher-phone" className="mb-1 block text-sm font-semibold text-gray-700">
               رقم الهاتف (اختياري)
             </label>
             <input
               id="teacher-phone"
               value={form.phone}
               onChange={(event) => setValue("phone", event.target.value)}
+              className="w-full rounded-lg border border-gray-200 px-3 py-3 text-[16px] outline-none ring-primary-200 focus:ring"
               placeholder="أدخل رقم الهاتف"
-              className="w-full rounded-lg border border-gray-200 px-3 py-3 text-[16px] outline-none ring-primary-200 transition focus:ring"
             />
           </div>
         </div>
 
-        <div className="mt-6 flex items-center justify-end gap-2">
+        <div className="mt-6 flex justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="min-h-[44px] rounded-lg border border-gray-200 px-4 py-2 text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed"
+            className="min-h-[44px] rounded-lg border border-gray-200 px-4 py-2 text-gray-700 hover:bg-gray-100"
           >
             إلغاء
           </button>
@@ -188,9 +218,9 @@ export default function TeacherModal({ isOpen, onClose, onSuccess, schoolId, tea
               void saveTeacher();
             }}
             disabled={saving}
-            className="min-h-[44px] rounded-lg bg-primary-600 px-4 py-2 text-white hover:bg-primary-700 disabled:cursor-not-allowed"
+            className="min-h-[44px] rounded-lg bg-primary-600 px-4 py-2 text-white hover:bg-primary-700"
           >
-            {saving ? "جار الحفظ..." : "حفظ"}
+            {saving ? "جارٍ الحفظ..." : "حفظ"}
           </button>
         </div>
       </div>

@@ -6,19 +6,26 @@ import { useParams } from "next/navigation";
 import toast from "react-hot-toast";
 
 import { createClient } from "@/lib/supabase/client";
-import type { Student } from "@/lib/types";
+import type { Student, UserRole } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 
-const supabase = createClient();
-
-type AttendanceStatus = "present" | "absent" | "late";
-
-interface AttendanceEntry {
-  date: string;
-  status: AttendanceStatus;
+interface ProfileContext {
+  school_id: string | null;
+  role: UserRole | null;
+  full_name: string | null;
 }
 
-interface ExamResultEntry {
+interface AttendanceRecord {
+  date: string;
+  status: "present" | "absent" | "late" | "excused";
+}
+
+interface HomeworkSubmission {
+  homework_id: string;
+  completed: boolean;
+}
+
+interface ExamResultItem {
   id: string;
   exam_id: string;
   score: number;
@@ -32,45 +39,54 @@ interface ExamItem {
   max_score: number;
 }
 
-interface DisplayResult {
+interface TeacherNote {
   id: string;
-  examTitle: string;
-  examDate: string;
-  maxScore: number;
-  score: number;
+  note: string;
+  created_at: string;
+  teacher_name: string;
 }
 
-function buildRecentDays(days: number) {
-  const output: string[] = [];
-  const base = new Date();
+const supabase = createClient();
 
-  for (let index = days - 1; index >= 0; index -= 1) {
-    const day = new Date(base);
-    day.setDate(base.getDate() - index);
-    output.push(day.toISOString().slice(0, 10));
-  }
+function daysInCurrentMonth() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const total = new Date(year, month + 1, 0).getDate();
 
-  return output;
+  return Array.from({ length: total }, (_, index) => {
+    const date = new Date(year, month, index + 1);
+    return date.toISOString().slice(0, 10);
+  });
 }
 
-function statusClass(status: AttendanceStatus | null) {
-  if (status === "present") return "bg-primary-600";
-  if (status === "late") return "bg-amber-500";
-  if (status === "absent") return "bg-red-600";
-  return "bg-gray-200";
+function statusColor(status: AttendanceRecord["status"] | undefined) {
+  if (status === "present") return "#16a34a";
+  if (status === "late") return "#f59e0b";
+  if (status === "excused") return "#0891b2";
+  if (status === "absent") return "#dc2626";
+  return "#e5e7eb";
 }
 
 export default function StudentProfilePage() {
   const params = useParams<{ id: string }>();
   const studentId = params?.id;
 
-  const [schoolId, setSchoolId] = useState<string>("");
-  const [student, setStudent] = useState<Student | null>(null);
-  const [attendance, setAttendance] = useState<AttendanceEntry[]>([]);
-  const [results, setResults] = useState<DisplayResult[]>([]);
   const [loading, setLoading] = useState(true);
+  const [schoolId, setSchoolId] = useState<string | null>(null);
+  const [role, setRole] = useState<UserRole | null>(null);
+  const [currentUserName, setCurrentUserName] = useState("المعلم");
+  const [student, setStudent] = useState<Student | null>(null);
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
+  const [results, setResults] = useState<Array<{ exam_title: string; exam_date: string; score: number; max_score: number }>>([]);
+  const [completionRate, setCompletionRate] = useState(0);
+  const [notes, setNotes] = useState<TeacherNote[]>([]);
+  const [newNote, setNewNote] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
 
-  const loadStudentProfile = useCallback(async () => {
+  const canWriteNotes = role === "school_admin" || role === "teacher";
+
+  const loadData = useCallback(async () => {
     if (!studentId) {
       setLoading(false);
       return;
@@ -89,99 +105,125 @@ export default function StudentProfilePage() {
 
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
-        .select("school_id")
+        .select("school_id, role, full_name")
         .eq("id", user.id)
-        .single();
+        .single<ProfileContext>();
 
       if (profileError) {
         throw profileError;
       }
 
-      const activeSchoolId = profile?.school_id;
-      if (!activeSchoolId) {
-        setSchoolId("");
+      setRole(profile?.role ?? null);
+      setCurrentUserName(profile?.full_name || "المعلم");
+
+      if (!profile?.school_id) {
+        setSchoolId(null);
         setStudent(null);
-        setAttendance([]);
-        setResults([]);
         return;
       }
 
-      setSchoolId(activeSchoolId);
+      setSchoolId(profile.school_id);
 
       const { data: studentData, error: studentError } = await supabase
         .from("students")
-        .select("id, school_id, full_name, level, parent_phone, created_at")
+        .select("id,school_id,full_name,level,parent_phone,created_at")
         .eq("id", studentId)
-        .eq("school_id", activeSchoolId)
-        .single();
+        .eq("school_id", profile.school_id)
+        .single<Student>();
 
       if (studentError) {
         throw studentError;
       }
 
-      setStudent(studentData as Student);
+      setStudent(studentData);
 
-      const [attendanceRes, resultsRes] = await Promise.all([
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+
+      const [attendanceRes, homeworkRes, submissionsRes, notesRes, resultsRes] = await Promise.all([
         supabase
           .from("attendance")
-          .select("date, status")
-          .eq("school_id", activeSchoolId)
+          .select("date,status")
+          .eq("school_id", profile.school_id)
           .eq("student_id", studentId)
-          .order("date", { ascending: false }),
+          .gte("date", monthStart)
+          .lte("date", monthEnd),
         supabase
-          .from("exam_results")
-          .select("id, exam_id, score, created_at")
-          .eq("school_id", activeSchoolId)
+          .from("homework")
+          .select("id")
+          .eq("school_id", profile.school_id)
+          .eq("level", studentData.level),
+        supabase
+          .from("homework_submissions")
+          .select("homework_id,completed")
+          .eq("school_id", profile.school_id)
+          .eq("student_id", studentId),
+        supabase
+          .from("teacher_notes")
+          .select("id,note,created_at,teacher_name")
+          .eq("school_id", profile.school_id)
+          .eq("student_id", studentId)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("results")
+          .select("id,exam_id,score,created_at")
+          .eq("school_id", profile.school_id)
           .eq("student_id", studentId)
           .order("created_at", { ascending: false }),
       ]);
 
-      if (attendanceRes.error || resultsRes.error) {
-        throw attendanceRes.error || resultsRes.error;
+      if (attendanceRes.error || homeworkRes.error || submissionsRes.error || notesRes.error || resultsRes.error) {
+        throw attendanceRes.error || homeworkRes.error || submissionsRes.error || notesRes.error || resultsRes.error;
       }
 
-      const attendanceRows = (attendanceRes.data as AttendanceEntry[]) ?? [];
+      const attendanceRows = (attendanceRes.data as AttendanceRecord[]) ?? [];
       setAttendance(attendanceRows);
 
-      const rawResults = (resultsRes.data as ExamResultEntry[]) ?? [];
-      if (rawResults.length === 0) {
+      const allHomework = (homeworkRes.data as Array<{ id: string }>) ?? [];
+      const doneSubmissions = ((submissionsRes.data as HomeworkSubmission[]) ?? []).filter((item) => item.completed);
+      const rate = allHomework.length === 0 ? 0 : Math.round((doneSubmissions.length / allHomework.length) * 100);
+      setCompletionRate(rate);
+
+      setNotes((notesRes.data as TeacherNote[]) ?? []);
+
+      const rawResults = (resultsRes.data as ExamResultItem[]) ?? [];
+
+      if (rawResults.length > 0) {
+        const examIds = Array.from(new Set(rawResults.map((row) => row.exam_id)));
+        const { data: examsData, error: examsError } = await supabase
+          .from("exams")
+          .select("id,title,exam_date,max_score")
+          .eq("school_id", profile.school_id)
+          .in("id", examIds);
+
+        if (examsError) {
+          throw examsError;
+        }
+
+        const examMap = new Map<string, ExamItem>();
+        ((examsData as ExamItem[]) ?? []).forEach((exam) => {
+          examMap.set(exam.id, exam);
+        });
+
+        const merged = rawResults
+          .map((entry) => {
+            const exam = examMap.get(entry.exam_id);
+            if (!exam) return null;
+            return {
+              exam_title: exam.title,
+              exam_date: exam.exam_date,
+              score: entry.score,
+              max_score: exam.max_score,
+            };
+          })
+          .filter((item): item is { exam_title: string; exam_date: string; score: number; max_score: number } => item !== null);
+
+        setResults(merged);
+      } else {
         setResults([]);
-        return;
       }
-
-      const examIds = Array.from(new Set(rawResults.map((row) => row.exam_id)));
-      const { data: examsData, error: examsError } = await supabase
-        .from("exams")
-        .select("id, title, exam_date, max_score")
-        .eq("school_id", activeSchoolId)
-        .in("id", examIds);
-
-      if (examsError) {
-        throw examsError;
-      }
-
-      const examMap = new Map<string, ExamItem>();
-      ((examsData as ExamItem[]) ?? []).forEach((exam) => examMap.set(exam.id, exam));
-
-      const displayResults: DisplayResult[] = rawResults
-        .map((row) => {
-          const exam = examMap.get(row.exam_id);
-          if (!exam) {
-            return null;
-          }
-
-          return {
-            id: row.id,
-            examTitle: exam.title,
-            examDate: exam.exam_date,
-            maxScore: exam.max_score,
-            score: row.score,
-          };
-        })
-        .filter((item): item is DisplayResult => item !== null);
-
-      setResults(displayResults);
-    } catch (error: unknown) {
+    } catch (error) {
       const message = error instanceof Error ? error.message : "تعذر تحميل ملف الطالب.";
       toast.error(message);
     } finally {
@@ -190,37 +232,70 @@ export default function StudentProfilePage() {
   }, [studentId]);
 
   useEffect(() => {
-    void loadStudentProfile();
-  }, [loadStudentProfile]);
+    void loadData();
+  }, [loadData]);
 
-  const recentDays = useMemo(() => buildRecentDays(30), []);
-
+  const monthDays = useMemo(() => daysInCurrentMonth(), []);
   const attendanceByDate = useMemo(() => {
-    const map = new Map<string, AttendanceStatus>();
-    attendance.forEach((item) => {
-      if (!map.has(item.date)) {
-        map.set(item.date, item.status);
-      }
-    });
+    const map = new Map<string, AttendanceRecord["status"]>();
+    attendance.forEach((item) => map.set(item.date, item.status));
     return map;
   }, [attendance]);
 
+  const addNote = async () => {
+    if (!schoolId || !studentId || !canWriteNotes) {
+      toast.error("ليس لديك صلاحية إضافة ملاحظة.");
+      return;
+    }
+
+    if (!newNote.trim()) {
+      toast.error("اكتب ملاحظة قبل الحفظ.");
+      return;
+    }
+
+    setSavingNote(true);
+
+    try {
+      const { error } = await supabase.from("teacher_notes").insert([
+        {
+          school_id: schoolId,
+          student_id: studentId,
+          note: newNote.trim(),
+          teacher_name: currentUserName,
+        },
+      ]);
+
+      if (error) {
+        throw error;
+      }
+
+      toast.success("تم حفظ الملاحظة.");
+      setNewNote("");
+      await loadData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "تعذر حفظ الملاحظة.";
+      toast.error(message);
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
   if (loading) {
     return (
-      <section className="flex min-h-[60vh] items-center justify-center" dir="rtl">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary-100 border-t-primary-600" />
+      <section dir="rtl" className="flex min-h-[65vh] items-center justify-center">
+        <div className="h-11 w-11 animate-spin rounded-full border-4 border-primary-100 border-t-primary-600" />
       </section>
     );
   }
 
   if (!schoolId) {
     return (
-      <section className="rounded-2xl bg-white p-8 text-center shadow-sm" dir="rtl">
-        <h1 className="mb-3 text-2xl font-bold text-primary-700">لا توجد مدرسة مرتبطة بالحساب</h1>
-        <p className="mb-6 text-gray-600">قم بإكمال الإعداد أولًا للوصول إلى ملفات الطلبة.</p>
+      <section dir="rtl" className="rounded-xl bg-white p-6 text-center shadow-md">
+        <h1 className="mb-3 text-2xl font-bold text-primary-700">لا توجد مدرسة مرتبطة</h1>
+        <p className="mb-6 text-gray-600">أكمل الإعداد للوصول إلى ملفات الطلبة.</p>
         <Link
           href="/onboarding"
-          className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-primary-600 px-5 py-2 text-white hover:bg-primary-700"
+          className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-primary-600 px-4 py-2 text-white hover:bg-primary-700"
         >
           إكمال الإعداد
         </Link>
@@ -230,12 +305,12 @@ export default function StudentProfilePage() {
 
   if (!student) {
     return (
-      <section className="rounded-2xl bg-white p-8 text-center shadow-sm" dir="rtl">
+      <section dir="rtl" className="rounded-xl bg-white p-6 text-center shadow-md">
         <h1 className="mb-3 text-2xl font-bold text-primary-700">لم يتم العثور على الطالب</h1>
-        <p className="mb-6 text-gray-600">تأكد من الرابط أو عد إلى قائمة الطلبة.</p>
+        <p className="mb-6 text-gray-600">تحقق من الرابط أو عد إلى قائمة الطلبة.</p>
         <Link
           href="/dashboard/students"
-          className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-primary-600 px-5 py-2 text-white hover:bg-primary-700"
+          className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-primary-600 px-4 py-2 text-white hover:bg-primary-700"
         >
           العودة إلى الطلبة
         </Link>
@@ -245,60 +320,47 @@ export default function StudentProfilePage() {
 
   return (
     <section dir="rtl" className="space-y-5">
-      <header className="rounded-2xl bg-white p-5 shadow-sm">
-        <h1 className="text-2xl font-bold text-primary-700">الملف الدراسي للطالب</h1>
-        <p className="mt-1 text-gray-600">متابعة الحضور والنتائج التفصيلية.</p>
+      <header className="rounded-xl bg-white p-6 shadow-md">
+        <h1 className="text-2xl font-bold text-primary-700">ملف الطالب</h1>
+        <p className="mt-2 text-gray-600">متابعة الحضور والواجبات والنتائج والملاحظات.</p>
       </header>
 
-      <section className="rounded-2xl bg-white p-5 shadow-sm">
+      <section className="rounded-xl bg-white p-6 shadow-md">
         <h2 className="text-xl font-bold text-gray-900">{student.full_name}</h2>
-        <div className="mt-3 grid grid-cols-1 gap-3 text-sm text-gray-600 md:grid-cols-3">
+        <div className="mt-3 grid grid-cols-1 gap-2 text-sm text-gray-600 md:grid-cols-3">
           <p>المستوى: {student.level}</p>
           <p>هاتف ولي الأمر: {student.parent_phone || "-"}</p>
           <p>تاريخ التسجيل: {formatDate(student.created_at)}</p>
         </div>
       </section>
 
-      <section className="rounded-2xl bg-white p-5 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-primary-700">تقويم الحضور (آخر 30 يوم)</h2>
-          <Link href="/dashboard/attendance" className="text-sm font-semibold text-primary-700 hover:text-primary-800">
-            تسجيل الحضور
-          </Link>
-        </div>
+      <section className="rounded-xl bg-white p-6 shadow-md">
+        <h2 className="mb-3 text-lg font-bold text-primary-700">خريطة الحضور الشهرية</h2>
 
         <div className="mb-3 flex flex-wrap gap-3 text-xs text-gray-600">
           <span className="inline-flex items-center gap-2">
-            <span className="h-3 w-3 rounded bg-primary-600" /> حاضر
+            <span className="h-3 w-3 rounded" style={{ backgroundColor: "#16a34a" }} /> حاضر
           </span>
           <span className="inline-flex items-center gap-2">
-            <span className="h-3 w-3 rounded bg-amber-500" /> متأخر
+            <span className="h-3 w-3 rounded" style={{ backgroundColor: "#f59e0b" }} /> متأخر
           </span>
           <span className="inline-flex items-center gap-2">
-            <span className="h-3 w-3 rounded bg-red-600" /> غائب
+            <span className="h-3 w-3 rounded" style={{ backgroundColor: "#0891b2" }} /> بعذر
           </span>
           <span className="inline-flex items-center gap-2">
-            <span className="h-3 w-3 rounded bg-gray-200" /> غير مسجل
+            <span className="h-3 w-3 rounded" style={{ backgroundColor: "#dc2626" }} /> غائب
+          </span>
+          <span className="inline-flex items-center gap-2">
+            <span className="h-3 w-3 rounded" style={{ backgroundColor: "#e5e7eb" }} /> غير مسجل
           </span>
         </div>
 
-        <div className="grid grid-cols-6 gap-2 sm:grid-cols-10 md:grid-cols-15">
-          {recentDays.map((day) => {
-            const status = attendanceByDate.get(day) ?? null;
+        <div className="grid grid-cols-7 gap-2 md:grid-cols-10 lg:grid-cols-14">
+          {monthDays.map((day) => {
+            const status = attendanceByDate.get(day);
             return (
               <div key={day} className="flex flex-col items-center gap-1">
-                <div
-                  className={`h-6 w-6 rounded ${statusClass(status)}`}
-                  title={`${day} - ${
-                    status === "present"
-                      ? "حاضر"
-                      : status === "late"
-                        ? "متأخر"
-                        : status === "absent"
-                          ? "غائب"
-                          : "غير مسجل"
-                  }`}
-                />
+                <div className="h-6 w-6 rounded" style={{ backgroundColor: statusColor(status) }} title={day} />
                 <span className="text-[10px] text-gray-500">{day.slice(8, 10)}</span>
               </div>
             );
@@ -306,47 +368,84 @@ export default function StudentProfilePage() {
         </div>
       </section>
 
-      <section className="rounded-2xl bg-white p-5 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-primary-700">النتائج الدراسية</h2>
-          <Link href="/dashboard/results" className="text-sm font-semibold text-primary-700 hover:text-primary-800">
-            إدارة النتائج
-          </Link>
-        </div>
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <article className="rounded-xl bg-white p-6 shadow-md">
+          <h2 className="mb-3 text-lg font-bold text-primary-700">معدل إنجاز الواجبات</h2>
+          <p className="text-4xl font-extrabold text-primary-700">{completionRate}%</p>
+          <p className="mt-2 text-sm text-gray-600">نسبة الواجبات المكتملة مقارنة بالواجبات المخصصة للمستوى.</p>
+        </article>
 
-        {results.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-primary-200 bg-primary-50/40 p-5 text-center">
-            <p className="mb-4 text-gray-600">لا توجد نتائج مسجلة لهذا الطالب بعد.</p>
-            <Link
-              href="/dashboard/results"
-              className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-primary-600 px-4 py-2 text-white hover:bg-primary-700"
-            >
-              إدخال النتائج
-            </Link>
+        <article className="rounded-xl bg-white p-6 shadow-md">
+          <h2 className="mb-3 text-lg font-bold text-primary-700">سجل النتائج</h2>
+
+          {results.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-primary-200 bg-primary-50 p-4 text-center">
+              <p className="mb-3 text-sm text-gray-600">لا توجد نتائج مسجلة بعد.</p>
+              <Link
+                href="/dashboard/results"
+                className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-primary-600 px-4 py-2 text-white hover:bg-primary-700"
+              >
+                إدارة النتائج
+              </Link>
+            </div>
+          ) : (
+            <ul className="space-y-2">
+              {results.map((result, index) => (
+                <li key={`${result.exam_title}-${index}`} className="rounded-lg bg-beige-50 p-3">
+                  <p className="font-semibold text-gray-900">{result.exam_title}</p>
+                  <p className="text-sm text-gray-600">التاريخ: {formatDate(result.exam_date)}</p>
+                  <p className="text-sm text-primary-700">
+                    الدرجة: {result.score} / {result.max_score}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </article>
+      </section>
+
+      <section className="rounded-xl bg-white p-6 shadow-md">
+        <h2 className="mb-3 text-lg font-bold text-primary-700">ملاحظات المعلمين</h2>
+
+        {canWriteNotes ? (
+          <div className="mb-4 space-y-2">
+            <textarea
+              value={newNote}
+              onChange={(event) => setNewNote(event.target.value)}
+              rows={3}
+              className="w-full rounded-lg border border-gray-200 px-3 py-3 text-[16px] outline-none ring-primary-200 focus:ring"
+              placeholder="أضف ملاحظة تربوية عن الطالب"
+            />
+            <div className="flex justify-end">
+              <button
+                type="button"
+                disabled={savingNote}
+                onClick={() => {
+                  void addNote();
+                }}
+                className="min-h-[44px] rounded-lg bg-primary-600 px-4 py-2 text-white hover:bg-primary-700 disabled:opacity-60"
+              >
+                {savingNote ? "جارٍ الحفظ..." : "حفظ الملاحظة"}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {notes.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-primary-200 bg-primary-50 p-4 text-center text-sm text-gray-600">
+            لا توجد ملاحظات مسجلة.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-right">
-              <thead className="bg-primary-50 text-primary-700">
-                <tr>
-                  <th className="px-4 py-3">الاختبار</th>
-                  <th className="px-4 py-3">تاريخ الاختبار</th>
-                  <th className="px-4 py-3">الدرجة</th>
-                </tr>
-              </thead>
-              <tbody>
-                {results.map((result) => (
-                  <tr key={result.id} className="border-t border-gray-100">
-                    <td className="px-4 py-3 font-semibold text-gray-900">{result.examTitle}</td>
-                    <td className="px-4 py-3 text-gray-700">{formatDate(result.examDate)}</td>
-                    <td className="px-4 py-3 text-gray-700">
-                      {result.score} / {result.maxScore}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className="space-y-2">
+            {notes.map((note) => (
+              <li key={note.id} className="rounded-lg bg-beige-50 p-3">
+                <p className="text-gray-800">{note.note}</p>
+                <p className="mt-1 text-xs text-gray-500">
+                  {note.teacher_name} - {formatDate(note.created_at)}
+                </p>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
     </section>

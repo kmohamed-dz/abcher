@@ -1,31 +1,40 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import toast from "react-hot-toast";
 
 import HomeworkModal from "@/components/HomeworkModal";
 import { createClient } from "@/lib/supabase/client";
+import type { UserRole } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 
-const supabase = createClient();
+interface ProfileContext {
+  school_id: string | null;
+  role: UserRole | null;
+}
 
 export interface HomeworkItem {
   id: string;
   school_id: string;
   title: string;
   level: string;
-  details: string | null;
+  description: string | null;
   due_date: string | null;
   created_at: string;
 }
 
+const supabase = createClient();
+
 export default function HomeworkPage() {
-  const [schoolId, setSchoolId] = useState<string>("");
-  const [homeworkItems, setHomeworkItems] = useState<HomeworkItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [schoolId, setSchoolId] = useState<string | null>(null);
+  const [role, setRole] = useState<UserRole | null>(null);
+  const [items, setItems] = useState<HomeworkItem[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedHomework, setSelectedHomework] = useState<HomeworkItem | null>(null);
+
+  const canManage = role === "school_admin" || role === "teacher";
 
   const loadHomework = useCallback(async () => {
     setLoading(true);
@@ -41,35 +50,37 @@ export default function HomeworkPage() {
 
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
-        .select("school_id")
+        .select("school_id, role")
         .eq("id", user.id)
-        .single();
+        .single<ProfileContext>();
 
       if (profileError) {
         throw profileError;
       }
 
-      const activeSchoolId = profile?.school_id;
-      if (!activeSchoolId) {
-        setSchoolId("");
-        setHomeworkItems([]);
+      setRole(profile?.role ?? null);
+
+      if (!profile?.school_id) {
+        setSchoolId(null);
+        setItems([]);
         return;
       }
 
-      setSchoolId(activeSchoolId);
+      setSchoolId(profile.school_id);
 
       const { data, error } = await supabase
         .from("homework")
-        .select("id, school_id, title, level, details, due_date, created_at")
-        .eq("school_id", activeSchoolId)
+        .select("id,school_id,title,level,description,due_date,created_at")
+        .eq("school_id", profile.school_id)
+        .order("due_date", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: false });
 
       if (error) {
         throw error;
       }
 
-      setHomeworkItems((data as HomeworkItem[]) ?? []);
-    } catch (error: unknown) {
+      setItems((data as HomeworkItem[]) ?? []);
+    } catch (error) {
       const message = error instanceof Error ? error.message : "تعذر تحميل الواجبات.";
       toast.error(message);
     } finally {
@@ -81,8 +92,26 @@ export default function HomeworkPage() {
     void loadHomework();
   }, [loadHomework]);
 
-  const removeHomework = async (item: HomeworkItem) => {
-    const confirmed = window.confirm(`هل أنت متأكد من حذف واجب: ${item.title}؟`);
+  const grouped = useMemo(() => {
+    const map = new Map<string, HomeworkItem[]>();
+
+    items.forEach((item) => {
+      const key = item.due_date || "بدون تاريخ";
+      const current = map.get(key) || [];
+      current.push(item);
+      map.set(key, current);
+    });
+
+    return Array.from(map.entries()).map(([key, list]) => ({
+      dueDate: key,
+      list,
+    }));
+  }, [items]);
+
+  const deleteHomework = async (item: HomeworkItem) => {
+    if (!schoolId || !canManage) return;
+
+    const confirmed = window.confirm(`هل تريد حذف الواجب: ${item.title}؟`);
     if (!confirmed) return;
 
     try {
@@ -98,7 +127,7 @@ export default function HomeworkPage() {
 
       toast.success("تم حذف الواجب.");
       await loadHomework();
-    } catch (error: unknown) {
+    } catch (error) {
       const message = error instanceof Error ? error.message : "تعذر حذف الواجب.";
       toast.error(message);
     }
@@ -106,100 +135,123 @@ export default function HomeworkPage() {
 
   if (loading) {
     return (
-      <section className="flex min-h-[60vh] items-center justify-center" dir="rtl">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary-100 border-t-primary-600" />
+      <section dir="rtl" className="flex min-h-[65vh] items-center justify-center">
+        <div className="h-11 w-11 animate-spin rounded-full border-4 border-primary-100 border-t-primary-600" />
+      </section>
+    );
+  }
+
+  if (!schoolId) {
+    return (
+      <section dir="rtl" className="rounded-xl bg-white p-6 text-center shadow-md">
+        <h1 className="mb-3 text-2xl font-bold text-primary-700">لا توجد مدرسة مرتبطة</h1>
+        <p className="mb-6 text-gray-600">أكمل الإعداد لبدء إدارة الواجبات.</p>
+        <a
+          href="/onboarding"
+          className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-primary-600 px-4 py-2 text-white hover:bg-primary-700"
+        >
+          إكمال الإعداد
+        </a>
       </section>
     );
   }
 
   return (
     <section dir="rtl" className="space-y-5">
-      <header className="flex flex-col gap-3 rounded-2xl bg-white p-5 shadow-sm md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-primary-700">الواجبات</h1>
-          <p className="mt-1 text-gray-600">إدارة واجبات الطلبة حسب المستوى الدراسي.</p>
+      <header className="rounded-xl bg-white p-6 shadow-md">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-primary-700">الواجبات</h1>
+            <p className="mt-2 text-gray-600">تنظيم الواجبات حسب تاريخ التسليم.</p>
+          </div>
+          {canManage ? (
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedHomework(null);
+                setIsModalOpen(true);
+              }}
+              className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-white hover:bg-primary-700"
+            >
+              <Plus className="h-4 w-4" />
+              إضافة واجب
+            </button>
+          ) : null}
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setSelectedHomework(null);
-            setIsModalOpen(true);
-          }}
-          className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-white hover:bg-primary-700"
-        >
-          <Plus className="h-4 w-4" />
-          إضافة واجب
-        </button>
       </header>
 
-      {!schoolId ? (
-        <section className="rounded-2xl bg-white p-8 text-center shadow-sm">
-          <h2 className="mb-3 text-xl font-bold text-primary-700">لا توجد مدرسة مرتبطة بالحساب</h2>
-          <p className="mb-5 text-gray-600">أكمل الإعداد لبدء إدارة الواجبات.</p>
-          <a
-            href="/onboarding"
-            className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-primary-600 px-5 py-2 text-white hover:bg-primary-700"
-          >
-            إكمال الإعداد
-          </a>
-        </section>
-      ) : homeworkItems.length === 0 ? (
-        <section className="rounded-2xl bg-white p-8 text-center shadow-sm">
-          <p className="mb-4 text-gray-600">لا توجد واجبات مسجلة حتى الآن.</p>
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedHomework(null);
-              setIsModalOpen(true);
-            }}
-            className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-primary-600 px-5 py-2 text-white hover:bg-primary-700"
-          >
-            إضافة أول واجب
-          </button>
+      {items.length === 0 ? (
+        <section className="rounded-xl bg-white p-6 text-center shadow-md">
+          <p className="mb-4 text-gray-600">لا توجد واجبات مسجلة حاليًا.</p>
+          {canManage ? (
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedHomework(null);
+                setIsModalOpen(true);
+              }}
+              className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-primary-600 px-4 py-2 text-white hover:bg-primary-700"
+            >
+              إضافة أول واجب
+            </button>
+          ) : null}
         </section>
       ) : (
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {homeworkItems.map((item) => (
-            <article key={item.id} className="rounded-2xl bg-white p-5 shadow-sm">
-              <div className="mb-3 flex items-start justify-between gap-2">
-                <h3 className="text-lg font-bold text-gray-900">{item.title}</h3>
-                <span className="rounded-full bg-primary-100 px-3 py-1 text-xs font-semibold text-primary-700">{item.level}</span>
-              </div>
-              <p className="min-h-[56px] text-sm leading-7 text-gray-600">{item.details || "لا يوجد وصف إضافي."}</p>
-              <p className="mt-3 text-xs text-gray-500">موعد التسليم: {item.due_date ? formatDate(item.due_date) : "غير محدد"}</p>
+        grouped.map((group) => (
+          <section key={group.dueDate} className="rounded-xl bg-white p-6 shadow-md">
+            <h2 className="mb-4 text-lg font-bold text-primary-700">
+              {group.dueDate === "بدون تاريخ" ? "بدون تاريخ تسليم" : `تاريخ التسليم: ${formatDate(group.dueDate)}`}
+            </h2>
 
-              <div className="mt-4 flex flex-wrap justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedHomework(item);
-                    setIsModalOpen(true);
-                  }}
-                  className="min-h-[44px] rounded-lg bg-primary-600 px-3 py-2 text-sm text-white hover:bg-primary-700"
-                >
-                  تعديل
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void removeHomework(item);
-                  }}
-                  className="min-h-[44px] rounded-lg bg-red-600 px-3 py-2 text-sm text-white hover:bg-red-700"
-                >
-                  حذف
-                </button>
-              </div>
-            </article>
-          ))}
-        </section>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {group.list.map((item) => (
+                <article key={item.id} className="rounded-lg border border-primary-100 bg-beige-50 p-4">
+                  <div className="mb-2 flex items-start justify-between gap-2">
+                    <h3 className="text-base font-bold text-gray-900">{item.title}</h3>
+                    <span className="rounded-full bg-primary-100 px-3 py-1 text-xs font-semibold text-primary-700">
+                      {item.level}
+                    </span>
+                  </div>
+                  <p className="text-sm leading-7 text-gray-700">{item.description || "لا يوجد وصف إضافي."}</p>
+
+                  {canManage ? (
+                    <div className="mt-3 flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedHomework(item);
+                          setIsModalOpen(true);
+                        }}
+                        className="min-h-[44px] rounded-lg bg-yellow-500 px-3 py-2 text-sm text-white"
+                      >
+                        تعديل
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void deleteHomework(item);
+                        }}
+                        className="min-h-[44px] rounded-lg bg-red-600 px-3 py-2 text-sm text-white"
+                      >
+                        حذف
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-sm text-gray-500">عرض فقط</p>
+                  )}
+                </article>
+              ))}
+            </div>
+          </section>
+        ))
       )}
 
       <HomeworkModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSuccess={() => {
-          void loadHomework();
           setIsModalOpen(false);
+          void loadHomework();
         }}
         schoolId={schoolId}
         homework={selectedHomework}

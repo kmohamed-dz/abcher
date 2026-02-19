@@ -1,0 +1,29 @@
+@import url("https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;800&display=swap");
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  font-family: "Cairo", sans-serif;
+}
+
+body {
+  background: #faf8f5;
+  color: #111827;
+}
+
+.pattern-bg {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 35px,
+    rgba(22, 163, 74, 0.02) 35px,
+    rgba(22, 163, 74, 0.02) 70px
+  );
+}
+
+.glass-effect {
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}

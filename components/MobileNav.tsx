@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ClipboardCheck, Home, MessageSquare, Settings, Users } from "lucide-react";
 
+import { cn } from "@/lib/utils";
+
 const navItems = [
   { href: "/dashboard", label: "الرئيسية", icon: Home },
   { href: "/dashboard/students", label: "الطلبة", icon: Users },
@@ -16,7 +18,7 @@ export default function MobileNav() {
   const pathname = usePathname();
 
   return (
-    <nav dir="rtl" className="fixed inset-x-0 bottom-0 z-40 border-t border-primary-100 bg-white shadow-[0_-8px_24px_rgba(0,0,0,0.06)] md:hidden">
+    <nav dir="rtl" className="fixed inset-x-0 bottom-0 z-40 border-t border-primary-100 bg-white md:hidden">
       <ul className="grid grid-cols-5">
         {navItems.map((item) => {
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -26,11 +28,12 @@ export default function MobileNav() {
             <li key={item.href}>
               <Link
                 href={item.href}
-                className={`flex min-h-[44px] flex-col items-center justify-center gap-1 py-2 text-xs font-semibold transition ${
-                  active ? "text-primary-700" : "text-gray-500 hover:text-primary-700"
-                }`}
+                className={cn(
+                  "flex min-h-[44px] flex-col items-center justify-center gap-1 py-2 text-xs font-semibold",
+                  active ? "text-brand-600" : "text-gray-500",
+                )}
               >
-                <Icon className={`h-4 w-4 ${active ? "text-primary-700" : "text-gray-500"}`} />
+                <Icon className={cn("h-4 w-4", active ? "text-brand-600" : "text-gray-500")} />
                 <span>{item.label}</span>
               </Link>
             </li>
